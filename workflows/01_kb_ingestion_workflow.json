@@ -1,0 +1,369 @@
+{
+  "name": "[RAG-01] Knowledge Base Ingestion to Qdrant",
+  "nodes": [
+    {
+      "parameters": {},
+      "id": "1a01b2c3-0001-4000-8000-000000000001",
+      "name": "Manual Trigger",
+      "type": "n8n-nodes-base.manualTrigger",
+      "typeVersion": 1,
+      "position": [
+        220,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "method": "PUT",
+        "url": "={{ $env.QDRANT_URL || 'http://qdrant:6333' }}/collections/brewcraft_kb",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "{\n  \"vectors\": {\n    \"size\": 3072,\n    \"distance\": \"Cosine\"\n  }\n}",
+        "options": {}
+      },
+      "id": "1a01b2c3-0002-4000-8000-000000000002",
+      "name": "Create Qdrant Collection (3072d Cosine)",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        660,
+        300
+      ],
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 2000
+    },
+    {
+      "parameters": {
+        "fileSelector": "/files/knowledge_base/*.md",
+        "options": {}
+      },
+      "id": "1a01b2c3-0003-4000-8000-000000000003",
+      "name": "Read KB Markdown Files",
+      "type": "n8n-nodes-base.readWriteFile",
+      "typeVersion": 1,
+      "position": [
+        880,
+        300
+      ],
+      "retryOnFail": true,
+      "maxTries": 2,
+      "waitBetweenTries": 1000
+    },
+    {
+      "parameters": {
+        "operation": "text",
+        "destinationKey": "raw_text",
+        "options": {
+          "keepSource": "binary"
+        }
+      },
+      "id": "1a01b2c3-0004-4000-8000-000000000004",
+      "name": "Extract Text from Markdown",
+      "type": "n8n-nodes-base.extractFromFile",
+      "typeVersion": 1,
+      "position": [
+        1100,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "return $input.all().map(item => {\n  const rawText = item.json.raw_text || '';\n  const fileName = item.binary?.data?.fileName || 'unknown_file.md';\n\n  const titleMatch = rawText.match(/^#\\s+(.+)$/m);\n  const idMatch = rawText.match(/\\*\\*Document ID:\\*\\*\\s*([A-Z0-9-]+)/i);\n\n  const docTitle = titleMatch ? titleMatch[1].trim() : fileName;\n  const docId = idMatch ? idMatch[1].trim() : 'KB-UNKNOWN';\n\n  return {\n    json: {\n      doc_id: docId,\n      doc_title: docTitle,\n      source_file: fileName,\n      ingested_at: new Date().toISOString(),\n      clean_text: `[SOURCE_DOC_ID: ${docId} | FILE: ${fileName} | TITLE: ${docTitle}]\\n${rawText}`\n    }\n  };\n});"
+      },
+      "id": "1a01b2c3-0005-4000-8000-000000000005",
+      "name": "Extract Metadata & Format Text",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1320,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "mode": "insert",
+        "qdrantCollection": {
+          "__rl": true,
+          "value": "brewcraft_kb",
+          "mode": "id"
+        },
+        "options": {}
+      },
+      "id": "1a01b2c3-0006-4000-8000-000000000006",
+      "name": "Qdrant Vector Store (Insert)",
+      "type": "@n8n/n8n-nodes-langchain.vectorStoreQdrant",
+      "typeVersion": 1,
+      "position": [
+        1560,
+        300
+      ],
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 3000
+    },
+    {
+      "parameters": {
+        "jsonMode": "expressionData",
+        "jsonData": "={{ $json.clean_text }}",
+        "options": {
+          "metadata": {
+            "metadataValues": [
+              {
+                "name": "doc_id",
+                "value": "={{ $json.doc_id }}"
+              },
+              {
+                "name": "doc_title",
+                "value": "={{ $json.doc_title }}"
+              },
+              {
+                "name": "source_file",
+                "value": "={{ $json.source_file }}"
+              },
+              {
+                "name": "ingested_at",
+                "value": "={{ $json.ingested_at }}"
+              }
+            ]
+          }
+        }
+      },
+      "id": "1a01b2c3-0007-4000-8000-000000000007",
+      "name": "Default Data Loader",
+      "type": "@n8n/n8n-nodes-langchain.documentDefaultDataLoader",
+      "typeVersion": 1,
+      "position": [
+        1340,
+        520
+      ]
+    },
+    {
+      "parameters": {
+        "chunkSize": 600,
+        "chunkOverlap": 100,
+        "options": {}
+      },
+      "id": "1a01b2c3-0008-4000-8000-000000000008",
+      "name": "Recursive Character Text Splitter",
+      "type": "@n8n/n8n-nodes-langchain.textSplitterRecursiveCharacterTextSplitter",
+      "typeVersion": 1,
+      "position": [
+        1340,
+        700
+      ]
+    },
+    {
+      "parameters": {
+        "modelName": "models/gemini-embedding-001"
+      },
+      "id": "1a01b2c3-0009-4000-8000-000000000009",
+      "name": "Embeddings Google Gemini",
+      "type": "@n8n/n8n-nodes-langchain.embeddingsGoogleGemini",
+      "typeVersion": 1,
+      "position": [
+        1160,
+        520
+      ]
+    },
+    {
+      "parameters": {
+        "aggregate": "aggregateAllItemData",
+        "destinationFieldName": "inserted_chunks",
+        "options": {}
+      },
+      "id": "1a01b2c3-0010-4000-8000-000000000010",
+      "name": "Aggregate Inserted Chunks",
+      "type": "n8n-nodes-base.aggregate",
+      "typeVersion": 1,
+      "position": [
+        1840,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "append",
+        "documentId": {
+          "__rl": true,
+          "value": "={{ $env.ERROR_LOG_SPREADSHEET_ID }}",
+          "mode": "id"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": "audit_logs",
+          "mode": "name"
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "timestamp": "={{ $now.toISO() }}",
+            "workflow_name": "={{ $workflow.name }}",
+            "execution_id": "={{ $execution.id }}",
+            "event_type": "KB_INGESTION_COMPLETED",
+            "entity_id": "brewcraft_kb",
+            "status": "SUCCESS",
+            "details": "={{ 'Chunks inserted: ' + ($json.inserted_chunks?.length ?? 'see execution output') + '; collection brewcraft_kb uses 3072d cosine vectors.' }}"
+          }
+        },
+        "options": {}
+      },
+      "id": "1a01b2c3-0011-4000-8000-000000000011",
+      "name": "Log Ingestion to Google Sheets",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.5,
+      "position": [
+        2060,
+        300
+      ],
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 2000
+    },
+    {
+      "parameters": {
+        "method": "DELETE",
+        "url": "={{ $env.QDRANT_URL || 'http://qdrant:6333' }}/collections/brewcraft_kb",
+        "options": {}
+      },
+      "id": "1a01b2c3-0012-4000-8000-000000000012",
+      "name": "Delete Existing Qdrant Collection (ignore first-run 404)",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        440,
+        300
+      ],
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 2000,
+      "onError": "continueRegularOutput"
+    }
+  ],
+  "connections": {
+    "Manual Trigger": {
+      "main": [
+        [
+          {
+            "node": "Delete Existing Qdrant Collection (ignore first-run 404)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Read KB Markdown Files": {
+      "main": [
+        [
+          {
+            "node": "Extract Text from Markdown",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Extract Text from Markdown": {
+      "main": [
+        [
+          {
+            "node": "Extract Metadata & Format Text",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Extract Metadata & Format Text": {
+      "main": [
+        [
+          {
+            "node": "Qdrant Vector Store (Insert)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Default Data Loader": {
+      "ai_document": [
+        [
+          {
+            "node": "Qdrant Vector Store (Insert)",
+            "type": "ai_document",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Recursive Character Text Splitter": {
+      "ai_textSplitter": [
+        [
+          {
+            "node": "Default Data Loader",
+            "type": "ai_textSplitter",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Embeddings Google Gemini": {
+      "ai_embedding": [
+        [
+          {
+            "node": "Qdrant Vector Store (Insert)",
+            "type": "ai_embedding",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Qdrant Vector Store (Insert)": {
+      "main": [
+        [
+          {
+            "node": "Aggregate Inserted Chunks",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Aggregate Inserted Chunks": {
+      "main": [
+        [
+          {
+            "node": "Log Ingestion to Google Sheets",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Delete Existing Qdrant Collection (ignore first-run 404)": {
+      "main": [
+        [
+          {
+            "node": "Create Qdrant Collection (3072d Cosine)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Create Qdrant Collection (3072d Cosine)": {
+      "main": [
+        [
+          {
+            "node": "Read KB Markdown Files",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1"
+  }
+}

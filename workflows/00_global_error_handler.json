@@ -1,0 +1,95 @@
+{
+  "name": "[CORE] Global Error Handler",
+  "nodes": [
+    {
+      "parameters": {},
+      "id": "0a01b2c3-0001-4000-8000-000000000001",
+      "name": "Error Trigger",
+      "type": "n8n-nodes-base.errorTrigger",
+      "typeVersion": 1,
+      "position": [
+        240,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "append",
+        "documentId": {
+          "__rl": true,
+          "value": "={{ $env.ERROR_LOG_SPREADSHEET_ID }}",
+          "mode": "id"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": "error_logs",
+          "mode": "name"
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "timestamp": "={{ $now.toISO() }}",
+            "workflow_name": "={{ $json.workflow.name }}",
+            "execution_id": "={{ $json.execution.id }}",
+            "failed_node": "={{ $json.execution.lastNodeExecuted }}",
+            "error_message": "={{ $json.execution.error.message }}",
+            "execution_url": "={{ $json.execution.url }}"
+          }
+        },
+        "options": {}
+      },
+      "id": "0a01b2c3-0002-4000-8000-000000000002",
+      "name": "Log Error to Google Sheets",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.5,
+      "position": [
+        480,
+        300
+      ],
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 2000
+    },
+    {
+      "parameters": {
+        "chatId": "={{ $env.ALERT_TELEGRAM_CHAT_ID }}",
+        "text": "=🚨 *n8n Workflow Failure*\\n*Workflow:* {{ $('Error Trigger').first().json.workflow.name }}\\n*Failed Node:* {{ $('Error Trigger').first().json.execution.lastNodeExecuted }}\\n*Error:* {{ $('Error Trigger').first().json.execution.error.message }}\\n*Execution ID:* {{ $('Error Trigger').first().json.execution.id }}",
+        "additionalFields": {
+          "parse_mode": "Markdown"
+        }
+      },
+      "id": "0a01b2c3-0003-4000-8000-000000000003",
+      "name": "Send Telegram Alert",
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2,
+      "position": [
+        720,
+        300
+      ],
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 2000
+    }
+  ],
+  "connections": {
+    "Error Trigger": {
+      "main": [
+        [
+          {
+            "node": "Log Error to Google Sheets",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Send Telegram Alert",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1"
+  }
+}
