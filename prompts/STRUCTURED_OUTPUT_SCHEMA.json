@@ -1,0 +1,37 @@
+{
+  "type": "object",
+  "properties": {
+    "answer": {
+      "type": "string"
+    },
+    "cited_documents": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "llm_confidence": {
+      "type": "number"
+    },
+    "needs_human_handoff": {
+      "type": "boolean"
+    },
+    "handoff_reason": {
+      "type": "string",
+      "enum": [
+        "NONE",
+        "LOW_SIMILARITY",
+        "INSUFFICIENT_CONTEXT",
+        "USER_REQUESTED_HUMAN",
+        "PROMPT_INJECTION_ATTEMPT"
+      ]
+    }
+  },
+  "required": [
+    "answer",
+    "cited_documents",
+    "llm_confidence",
+    "needs_human_handoff",
+    "handoff_reason"
+  ]
+}
